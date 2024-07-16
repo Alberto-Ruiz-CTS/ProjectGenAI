@@ -2,7 +2,7 @@ import const
 import json
 import requests
 
-headers = {"Authorization": f"Bearer {const.API_KEY}"}
+headers = {"Authorization": f"Bearer {const.API_KEYedu}"}
 
 url = "https://api.edenai.run/v2/text/chat"
 
