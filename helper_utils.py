@@ -38,7 +38,7 @@ def load_chroma(filename, collection_name, embedding_function):
     chunks = _chunk_texts(texts)
 
     chroma_cliet = chromadb.Client()
-    chroma_collection = chroma_cliet.create_collection(name=collection_name, embedding_function=embedding_function)
+    chroma_collection = chroma_cliet.get_or_create_collection(name=collection_name, embedding_function=embedding_function)
 
     ids = [str(i) for i in range(len(chunks))]
 
