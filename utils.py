@@ -40,28 +40,37 @@ def _chunk_texts(texts):
     return token_split_texts
 
 
-def load_chroma(filename, collection_name, embedding_function):
-    texts = _read_pdf(filename)
-    chunks = _chunk_texts(texts)
+def create_and_load_chroma_tickets(json_tickets, collection_name, embedding_function, persist_path):
+    
+    # Initialize Chroma client with persistence settings
+    chroma_client = chromadb.PersistentClient(path=persist_path)
 
-    chroma_cliet = chromadb.Client()
-    chroma_collection = chroma_cliet.get_or_create_collection(name=collection_name, embedding_function=embedding_function)
+    # Create or get the collection
+    chroma_collection = chroma_client.get_or_create_collection("ticket_collection")
 
-    ids = [str(i) for i in range(len(chunks))]
-
-    chroma_collection.add(ids=ids, documents=chunks)
+    # Prepare IDs and add documents to the collection
+    ids = [str(i) for i in range(len(json_tickets))]
+    chroma_collection.add(ids=ids, documents=json_tickets)
 
     return chroma_collection
 
-def load_chroma_persist(filename, collection_name, embedding_function, persist_path):
+def load_chroma_tickets(collection_name, persist_path):
+    
+    # Initialize Chroma client with persistence settings
+    chroma_client = chromadb.PersistentClient(path=persist_path)
+
+    # Create or get the collection
+    chroma_collection = chroma_client.get_or_create_collection(collection_name)
+
+    return chroma_collection
+
+def create_and_load_chroma_pdf(filename, collection_name, embedding_function, persist_path):
+    
     texts = _read_pdf(filename)
     chunks = _chunk_texts(texts)
 
     # Initialize Chroma client with persistence settings
-    chroma_client = chromadb.Client(Settings(
-        chroma_db_impl="duckdb+parquet",
-        persist_directory=persist_path
-    ))
+    chroma_client = chromadb.PersistentClient(path=persist_path)
 
     # Create or get the collection
     chroma_collection = chroma_client.get_or_create_collection(name=collection_name, embedding_function=embedding_function)
@@ -70,8 +79,14 @@ def load_chroma_persist(filename, collection_name, embedding_function, persist_p
     ids = [str(i) for i in range(len(chunks))]
     chroma_collection.add(ids=ids, documents=chunks)
 
-    # Persist the collection
-    chroma_client.persist()
+    return chroma_collection
+
+def load_chroma_pdf(collection_name, persist_path):
+
+    # Initialize Chroma client with persistence settings
+    chroma_client = chromadb.PersistentClient(path=persist_path)
+    # Create or get the collection
+    chroma_collection = chroma_client.get_or_create_collection(name=collection_name)
 
     return chroma_collection
 
@@ -97,7 +112,7 @@ def imageObjCreation(image_bytes):
     image_file = io.BytesIO(image_bytes)
     return Image.open(image_file)
 
-def readImgOCR(image_bytes, image):
+def readImgOCR(image_bytes):
 
     reader = easyocr.Reader(['en', 'es', 'fr'])
     textEasyOcr = reader.readtext(image_bytes,detail=0)
@@ -185,10 +200,14 @@ def augment_multiple_query(query):
     return augmented_queries
 
 # Function that finally calls the LLM with the documents retrieved 
-def chatbot_pdf(query,retrieved_documents):
+def chatbot_pdf(original_query,mode='Basic'):
 
+    chroma_collection = load_chroma_pdf(collection_name='boe_normativa_trafico', 
+                                        persist_path='/teamspace/studios/this_studio/ProjectGenAI/data/chroma_databases')
+    
+    retrieved_documents = retrieve_documents(original_query,chroma_collection,mode)
     information = "\n\n".join(retrieved_documents)
-    final_query = f"Pregunta: {query} \n Información: {information}"
+    final_query = f"Pregunta: {original_query} \n Información: {information}"
 
     payload = {
     "providers": "openai",
@@ -211,7 +230,77 @@ def chatbot_pdf(query,retrieved_documents):
 
     return final_response
 
-def generate_chatbot_answer(original_query,mode='basic'):
+def format_question(query):
+
+    # Format question with LLM call
+    instructions = f'''Ejemplos:
+                     
+                     Pregunta: Cúantas compras se realizaron en el trader joes el 4 de julio de 2023? 
+                     Respuesta: name: Trader Joe\'s date: 07-04-2023 
+                                                                      
+                     Pregunta: Cual es la dirección del max cafe donde se hizo una compra de 26 dolares?
+                     Respuesta: name: Max Cafe total: 26 
+                     
+                     A continuación se indica la pregunta que debes contestar:
+                     {query}'''
+
+    payload = {
+    "providers": "openai",
+    "text": instructions,
+    "chatbot_global_action": "Eres un asistente encargado de transformar la pregunta del usuario en un formato específico. \
+                              El usuario preguntará sobre información de tickets de compra que pueden tener los siguientes campos: name, address, date, category y total. \
+                              Primero, identifica los campos mencionados en la pregunta del usuario. Luego, formatea la respuesta como 'campo: valor', donde los campos son \
+                              los mencionados anteriormente y el valor es el que pregunta el usuario. \
+                              No incluyas información adicional. Solo indica los campos que aparecen en la pregunta e ignora los demás. La fecha debe estar en formato MM-DD-YYYY",
+    "previous_history": [],
+    "temperature": 0.0,
+    "max_tokens": 150,
+    }
+
+    # Send the request to the API
+    response = requests.post(cs.url, json=payload, headers=cs.headers_alberto)
+    result = json.loads(response.text)
+    formatted_query = result['openai']['generated_text']
+
+    return formatted_query
+
+
+def chatbot_ticket(original_query):
+
+    chroma_collection = load_chroma_tickets(collection_name='ticket_collection', 
+                                            persist_path='/teamspace/studios/this_studio/ProjectGenAI/data/chroma_databases/tickets_collection')
+
+    formatted_query = format_question(original_query)
+
+    # Retrieve documents based on the chatbot answer
+    results = chroma_collection.query(query_texts=[formatted_query], n_results=10)
+    retrieved_documents = results['documents'][0]
+
+    information = "\n\n".join(retrieved_documents)
+    final_query = f"Pregunta: {original_query} \n Información: {information}"
+
+    payload = {
+    "providers": "openai",
+    "text": final_query,
+    "chatbot_global_action": "Eres un asistente encargado de responder preguntas sobre tickets de compra. Te indicaré la pregunta \
+                              hecha por el usuario junto con la información de los tickets necesaria para responder. Usa únicamente dicha información.",
+    "previous_history": [],
+    "temperature": 0.0,
+    "max_tokens": 150,
+    }
+
+    # Send the request to the API
+    response = requests.post(cs.url, json=payload, headers=cs.headers_alberto)
+    result = json.loads(response.text)
+    final_response = result['openai']['generated_text']
+
+    return final_response
+
+
+
+    
+
+def retrieve_documents(original_query,chroma_collection,mode='Basic'):
     
     if mode == 'Multiple':
         
@@ -240,3 +329,39 @@ def generate_chatbot_answer(original_query,mode='basic'):
         
         results = chroma_collection.query(query_texts=[original_query], n_results=5)
         retrieved_documents = results['documents'][0]
+    
+    return retrieved_documents
+
+# Add ticket and show scanned results
+def process_and_add_ticket(image_path):
+    
+    chroma_collection = load_chroma_tickets(collection_name='ticket_collection', 
+                                            persist_path='/teamspace/studios/this_studio/ProjectGenAI/data/chroma_databases/tickets_collection')
+
+    # Process the image to extract text using OCR
+    with open(image_path, "rb") as f:
+        image_bytes = f.read()
+    # image_obj = imageObjCreation(image_bytes)
+    ocr_text = readImgOCR(image_bytes)
+
+    # Setup Pydantic parser and format instructions
+    parser = pydanticParser()
+    system_instructions, prompt = instructionsFormat(parser, ocr_text)
+
+    # Call the LLM model to extract ticket data
+    generated_answer = LLMModelCall(prompt, system_instructions)
+    ticket_data = parser.parse(generated_answer)
+
+    # Add ticket to the chroma database
+    ticket_dict = ticket_data.dict()
+    json_ticket = [json.dumps(ticket_dict)]
+    ticket_id = [int(chroma_collection.count())+1]
+    chroma_collection.add(ids=ticket_id, documents=json_ticket)
+   
+    name = ticket_data.name
+    address = ticket_data.address
+    date = ticket_data.date
+    category = ticket_data.category
+    total = ticket_data.total
+
+    return name,address,date,category,total
