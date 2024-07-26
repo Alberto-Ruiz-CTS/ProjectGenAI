@@ -23,11 +23,28 @@ def main():
         with gr.Tabs():
             with gr.TabItem("DGT Chatbot"):
                 gr.Markdown("## Ask whatever to the DGT chatbot!")
+                '''
                 chatbot_input = gr.Textbox(label="Enter your message")
                 mode = gr.Dropdown(label="Select complexity mode", choices=["Basic", "Expansion", "Multiple"], value="Basic")
                 chatbot_output = gr.Textbox(label="Response")
                 chatbot_button = gr.Button("Send")
                 chatbot_button.click(chatbot_pdf, [chatbot_input, mode], chatbot_output)
+                '''
+                mode = gr.Dropdown(label="Select complexity mode", choices=["Basic", "Expansion", "Multiple"], value="Basic")
+                gr.ChatInterface(
+                    chatbot_pdf,
+                    chatbot=gr.Chatbot(height=300),
+                    textbox=gr.Textbox(placeholder="Ask me a yes or no question", container=False, scale=7),
+                    title="Yes Man",
+                    description="Ask Yes Man any question",
+                    theme="soft",
+                    examples=["Hello", "Am I cool?", "Are tomatoes vegetables?"],
+                    cache_examples=True,
+                    retry_btn=None,
+                    undo_btn="Delete Previous",
+                    clear_btn="Clear",
+                    inputs=[textbox, mode]
+                )
             
             with gr.TabItem("Receipt Scanner & Chatbot"):
                 gr.Markdown("## Receipt Scanner")
