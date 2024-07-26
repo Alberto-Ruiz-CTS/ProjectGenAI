@@ -11,6 +11,9 @@ import easyocr
 import const as cs
 import requests
 import json
+from langchain.output_parsers import PydanticOutputParser
+from ticket import Ticket
+import pickle
 
 
 def _read_pdf(filename):
@@ -273,7 +276,7 @@ def chatbot_ticket(original_query):
     formatted_query = format_question(original_query)
 
     # Retrieve documents based on the chatbot answer
-    results = chroma_collection.query(query_texts=[formatted_query], n_results=10)
+    results = chroma_collection.query(query_texts=[formatted_query], n_results=100)
     retrieved_documents = results['documents'][0]
 
     information = "\n\n".join(retrieved_documents)
@@ -293,6 +296,7 @@ def chatbot_ticket(original_query):
     response = requests.post(cs.url, json=payload, headers=cs.headers_alberto)
     result = json.loads(response.text)
     final_response = result['openai']['generated_text']
+    
 
     return final_response
 
@@ -333,11 +337,8 @@ def retrieve_documents(original_query,chroma_collection,mode='Basic'):
     return retrieved_documents
 
 # Add ticket and show scanned results
-def process_and_add_ticket(image_path):
+def process_ticket(image_path):
     
-    chroma_collection = load_chroma_tickets(collection_name='ticket_collection', 
-                                            persist_path='/teamspace/studios/this_studio/ProjectGenAI/data/chroma_databases/tickets_collection')
-
     # Process the image to extract text using OCR
     with open(image_path, "rb") as f:
         image_bytes = f.read()
@@ -345,18 +346,12 @@ def process_and_add_ticket(image_path):
     ocr_text = readImgOCR(image_bytes)
 
     # Setup Pydantic parser and format instructions
-    parser = pydanticParser()
+    parser = PydanticOutputParser(pydantic_object = Ticket)
     system_instructions, prompt = instructionsFormat(parser, ocr_text)
 
     # Call the LLM model to extract ticket data
     generated_answer = LLMModelCall(prompt, system_instructions)
     ticket_data = parser.parse(generated_answer)
-
-    # Add ticket to the chroma database
-    ticket_dict = ticket_data.dict()
-    json_ticket = [json.dumps(ticket_dict)]
-    ticket_id = [int(chroma_collection.count())+1]
-    chroma_collection.add(ids=ticket_id, documents=json_ticket)
    
     name = ticket_data.name
     address = ticket_data.address

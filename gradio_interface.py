@@ -8,7 +8,8 @@ from utils import word_wrap
 from langchain.text_splitter import RecursiveCharacterTextSplitter, SentenceTransformersTokenTextSplitter
 import chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
-from utils import load_chroma_pdf, load_chroma_tickets, chatbot_pdf, chatbot_ticket, process_and_add_ticket
+from utils import load_chroma_pdf, load_chroma_tickets, chatbot_pdf, chatbot_ticket, process_ticket
+from ticket import Ticket
 
 def clear_history():
     global conversation_history
@@ -20,8 +21,8 @@ def main():
     # Define the Gradio interface
     with gr.Blocks() as demo:
         with gr.Tabs():
-            with gr.TabItem("Simple Chatbot"):
-                gr.Markdown("## Simple Chatbot")
+            with gr.TabItem("DGT Chatbot"):
+                gr.Markdown("## Ask whatever to the DGT chatbot!")
                 chatbot_input = gr.Textbox(label="Enter your message")
                 mode = gr.Dropdown(label="Select complexity mode", choices=["Basic", "Expansion", "Multiple"], value="Basic")
                 chatbot_output = gr.Textbox(label="Response")
@@ -39,7 +40,7 @@ def main():
                     gr.Textbox(label="Category"),
                     gr.Textbox(label="Total")
                 ]
-                receipt_button.click(process_and_add_ticket, [receipt_image], receipt_output)
+                receipt_button.click(process_ticket, [receipt_image], receipt_output)
                 
                 gr.Markdown("## Query Receipts Database")
                 query_input = gr.Textbox(label="Ask a question about the receipts")
